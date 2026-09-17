@@ -40,7 +40,7 @@ let lastKnownRamUsage = 61.5;
  */
 export function getPiConfig(): { baseUrl: string; timeoutMs: number } {
   const baseUrl = (process.env.OCR_PI_BASE_URL || "https://ali.tail743e77.ts.net").replace(/\/+$/, "");
-  const timeoutMs = parseInt(process.env.OCR_PI_TIMEOUT_MS || "45000", 10);
+  const timeoutMs = parseInt(process.env.OCR_PI_TIMEOUT_MS || "8500", 10);
   return { baseUrl, timeoutMs };
 }
 

@@ -22,8 +22,11 @@ app.use((req, res, next) => {
 });
 
 // URL path normalization for Vercel serverless rewrites:
-// If rewritten from /api/(.*) -> /api, ensure req.url retains /api prefix
+// Handles both /api/cases/... and /cases/... routes seamlessly
 app.use((req, res, next) => {
+  if (req.url === "/api" && req.originalUrl && req.originalUrl !== "/api") {
+    req.url = req.originalUrl;
+  }
   if (!req.url.startsWith("/api")) {
     req.url = `/api${req.url}`;
   }

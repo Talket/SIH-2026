@@ -120,12 +120,19 @@ export const api = {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(
-        err.error ||
-          err.details ||
-          `Failed to upload document and process with Raspberry Pi OCR (HTTP ${res.status})`
-      );
+      let message = `Failed to process document with Raspberry Pi OCR (HTTP ${res.status})`;
+      try {
+        const text = await res.text();
+        try {
+          const err = JSON.parse(text);
+          message = err.error || err.details || message;
+        } catch {
+          if (text && text.trim().length > 0 && !text.includes("<!DOCTYPE")) {
+            message = `${message}: ${text.trim().slice(0, 150)}`;
+          }
+        }
+      } catch {}
+      throw new Error(message);
     }
     return res.json();
   },
