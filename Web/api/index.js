@@ -1763,7 +1763,7 @@ app.use((req, res, next) => {
   } else if (req.url === "/api" && req.originalUrl && req.originalUrl !== "/api") {
     req.url = req.originalUrl;
   }
-  if (!req.url.startsWith("/api")) {
+  if (process.env.VERCEL && !req.url.startsWith("/api")) {
     req.url = `/api${req.url}`;
   }
   next();

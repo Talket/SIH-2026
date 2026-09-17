@@ -25,6 +25,8 @@ interface DataIngestionProps {
   activeCase: Case | null;
   documents: InvestigationDocument[];
   rpiStatus: RpiStatus | null;
+  activeDocumentId?: string;
+  onSelectActiveDoc?: (docId: string) => void;
   onUploadDocument: (docData: {
     filename: string;
     fileType: string;
@@ -50,6 +52,8 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
   activeCase,
   documents,
   rpiStatus,
+  activeDocumentId,
+  onSelectActiveDoc,
   onUploadDocument,
   onVerifyDocument,
   onNavigateToFirstLlm,
@@ -105,10 +109,15 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
     message: "Ready to upload document for Raspberry Pi OCR/HTR processing",
   });
 
-  // Selected document for investigator review
-  const [selectedDocId, setSelectedDocId] = useState<string>(
-    documents[0]?.id || ""
-  );
+  const reviewSectionRef = useRef<HTMLDivElement | null>(null);
+
+  // Selected document for investigator review (defaults to activeDocumentId if set)
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => {
+    if (activeDocumentId && documents.some((d) => d.id === activeDocumentId)) {
+      return activeDocumentId;
+    }
+    return documents[0]?.id || "";
+  });
 
   const selectedDoc = documents.find((d) => d.id === selectedDocId) || documents[0];
 
@@ -117,6 +126,17 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
   const [officerBadge, setOfficerBadge] = useState<string>("SP Rajeshwar Singh (IPS)");
   const [verificationNotes, setVerificationNotes] = useState<string>("");
   const [isVerifying, setIsVerifying] = useState<boolean>(false);
+
+  // Smoothly scroll down to Investigator Review workspace and focus selected doc
+  const handleReviewText = (docId: string) => {
+    setSelectedDocId(docId);
+    onSelectActiveDoc?.(docId);
+    setTimeout(() => {
+      if (reviewSectionRef.current) {
+        reviewSectionRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }, 60);
+  };
 
   // Sync review state when selectedDoc changes
   React.useEffect(() => {
@@ -127,12 +147,14 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
     }
   }, [selectedDoc?.id, selectedDoc?.rawExtractedText, selectedDoc?.approvedText]);
 
-  // Keep first document selected if none selected
+  // Keep selectedDocId synchronized with activeDocumentId or fallback to first document
   React.useEffect(() => {
-    if (!selectedDocId && documents.length > 0) {
+    if (activeDocumentId && documents.some((d) => d.id === activeDocumentId)) {
+      setSelectedDocId(activeDocumentId);
+    } else if (!selectedDocId && documents.length > 0) {
       setSelectedDocId(documents[0].id);
     }
-  }, [documents.length, selectedDocId]);
+  }, [activeDocumentId, documents]);
 
   const processIncomingFile = (file: File) => {
     setSelectedFile(file);
@@ -215,6 +237,7 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
 
       if (createdDoc && createdDoc.id) {
         setSelectedDocId(createdDoc.id);
+        onSelectActiveDoc?.(createdDoc.id);
       }
 
       if (createdDoc?.extractionStatus === "FAILED") {
@@ -282,6 +305,7 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
 
       if (createdDoc && createdDoc.id) {
         setSelectedDocId(createdDoc.id);
+        onSelectActiveDoc?.(createdDoc.id);
       }
 
       setExtractionProgress({
@@ -516,9 +540,21 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
                 </div>
 
                 {extractionProgress.status === "COMPLETED" && (
-                  <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-3">
-                    <span>Conf: <strong>{(extractionProgress.confidenceScore ? extractionProgress.confidenceScore * 100 : 98.4).toFixed(1)}%</strong></span>
-                    <span>Latency: <strong>{extractionProgress.latencyMs || 420}ms</strong></span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-[11px] text-emerald-400 font-mono flex items-center gap-2.5">
+                      <span>Conf: <strong>{(extractionProgress.confidenceScore ? extractionProgress.confidenceScore * 100 : 98.4).toFixed(1)}%</strong></span>
+                      <span>Latency: <strong>{extractionProgress.latencyMs || 420}ms</strong></span>
+                    </div>
+                    {selectedDoc && (
+                      <button
+                        type="button"
+                        onClick={() => handleReviewText(selectedDoc.id)}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded transition flex items-center gap-1.5 shrink-0 shadow"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Review Extracted Text &darr;</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -701,18 +737,25 @@ Location: Farmhouse 14, Bijwasan Road, Southwest Delhi | Date: 12/02/2026
             </thead>
             <tbody className="divide-y divide-[#172235]">
               {documents.map((doc) => {
-                const isSelected = doc.id === (selectedDoc?.id || "");
+                const isSelected = doc.id === (selectedDoc?.id || selectedDocId);
                 return (
                   <tr
                     key={doc.id}
-                    onClick={() => setSelectedDocId(doc.id)}
+                    onClick={() => handleReviewText(doc.id)}
                     className={`cursor-pointer transition ${
-                      isSelected ? "bg-[#182337] border-l-2 border-emerald-500" : "hover:bg-[#0f1624]"
+                      isSelected
+                        ? "bg-[#182337] border-l-4 border-emerald-500 shadow-sm"
+                        : "hover:bg-[#0f1624]"
                     }`}
                   >
                     <td className="py-2.5 px-3 font-medium text-slate-200 flex items-center gap-2">
                       <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span className="truncate max-w-[220px]">{doc.filename}</span>
+                      {isSelected && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0">
+                          SELECTED
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-3">
                       <span className="px-2 py-0.5 rounded text-[10px] bg-slate-800 text-slate-300">
@@ -750,11 +793,16 @@ Location: Farmhouse 14, Bijwasan Road, Southwest Delhi | Date: 12/02/2026
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          setSelectedDocId(doc.id);
+                          handleReviewText(doc.id);
                         }}
-                        className="px-2 py-1 text-[11px] bg-[#223048] hover:bg-emerald-600 hover:text-slate-950 text-slate-200 rounded transition"
+                        className={`px-2.5 py-1 text-[11px] font-semibold rounded transition flex items-center gap-1.5 ml-auto ${
+                          isSelected
+                            ? "bg-emerald-600 hover:bg-emerald-500 text-slate-950 shadow-sm"
+                            : "bg-[#223048] hover:bg-emerald-600 hover:text-slate-950 text-slate-200"
+                        }`}
                       >
-                        Review Text
+                        <Eye className="w-3 h-3" />
+                        <span>Review Text</span>
                       </button>
                     </td>
                   </tr>
@@ -767,7 +815,11 @@ Location: Farmhouse 14, Bijwasan Road, Southwest Delhi | Date: 12/02/2026
 
       {/* Investigator Review Component: Raw Extracted Text vs Original File */}
       {selectedDoc && (
-        <div className="bg-[#121927] border border-[#1f2c42] rounded-lg p-5 space-y-4">
+        <div
+          ref={reviewSectionRef}
+          id="review-text-section"
+          className="bg-[#121927] border border-[#1f2c42] rounded-lg p-5 space-y-4 scroll-mt-6"
+        >
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#1b263b] pb-3">
             <div>
               <div className="flex items-center gap-2 text-xs font-mono text-amber-400">

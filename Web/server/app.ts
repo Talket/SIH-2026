@@ -42,7 +42,8 @@ app.use((req, res, next) => {
     req.url = req.originalUrl;
   }
 
-  if (!req.url.startsWith("/api")) {
+  // Only rewrite to /api if the request is actually an API route or Vercel serverless invocation
+  if (process.env.VERCEL && !req.url.startsWith("/api")) {
     req.url = `/api${req.url}`;
   }
   next();

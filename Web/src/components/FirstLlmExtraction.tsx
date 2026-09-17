@@ -23,6 +23,8 @@ interface FirstLlmExtractionProps {
   activeCase: Case | null;
   documents: InvestigationDocument[];
   firstLlmOutputs: FirstLlmOutput[];
+  activeDocumentId?: string;
+  onSelectActiveDoc?: (docId: string) => void;
   onRunFirstLlm: (docId: string) => Promise<void>;
   onNavigateToSecondLlm: () => void;
 }
@@ -31,13 +33,28 @@ export const FirstLlmExtraction: React.FC<FirstLlmExtractionProps> = ({
   activeCase,
   documents,
   firstLlmOutputs,
+  activeDocumentId,
+  onSelectActiveDoc,
   onRunFirstLlm,
   onNavigateToSecondLlm,
 }) => {
   const approvedDocs = documents.filter((d) => d.verificationStatus === "APPROVED");
-  const [selectedDocId, setSelectedDocId] = useState<string>(
-    approvedDocs[0]?.id || documents[0]?.id || ""
-  );
+  const [selectedDocId, setSelectedDocId] = useState<string>(() => {
+    if (activeDocumentId && documents.some((d) => d.id === activeDocumentId)) {
+      return activeDocumentId;
+    }
+    return approvedDocs[0]?.id || documents[0]?.id || "";
+  });
+
+  // Automatically keep pre-selected document in sync with the active document from previous steps
+  React.useEffect(() => {
+    if (activeDocumentId && documents.some((d) => d.id === activeDocumentId)) {
+      setSelectedDocId(activeDocumentId);
+    } else if (!selectedDocId && documents.length > 0) {
+      setSelectedDocId(approvedDocs[0]?.id || documents[0]?.id || "");
+    }
+  }, [activeDocumentId, documents]);
+
   const [viewMode, setViewMode] = useState<"ENTITIES" | "JSON" | "EVENTS">("ENTITIES");
   const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [activeFilterType, setActiveFilterType] = useState<string>("ALL");
@@ -134,16 +151,24 @@ export const FirstLlmExtraction: React.FC<FirstLlmExtractionProps> = ({
                 return (
                   <div
                     key={doc.id}
-                    onClick={() => setSelectedDocId(doc.id)}
+                    onClick={() => {
+                      setSelectedDocId(doc.id);
+                      onSelectActiveDoc?.(doc.id);
+                    }}
                     className={`p-3 rounded border text-xs cursor-pointer transition ${
                       selectedDoc?.id === doc.id
-                        ? "bg-[#182335] border-blue-500/70"
+                        ? "bg-[#182335] border-blue-500 ring-1 ring-blue-500/50 shadow-md"
                         : "bg-[#0e1420] border-[#1c2738] hover:border-slate-600"
                     } ${!isApproved ? "opacity-60" : ""}`}
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="font-semibold text-slate-200 truncate">
-                        {doc.filename}
+                      <div className="font-semibold text-slate-200 truncate flex items-center gap-1.5">
+                        <span>{doc.filename}</span>
+                        {selectedDoc?.id === doc.id && (
+                          <span className="text-[9px] font-mono font-bold bg-blue-500/20 text-blue-300 border border-blue-500/40 px-1 py-0.2 rounded shrink-0">
+                            ACTIVE
+                          </span>
+                        )}
                       </div>
                       <span
                         className={`text-[9px] font-mono px-1.5 py-0.5 rounded shrink-0 border ${

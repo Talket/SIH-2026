@@ -114,6 +114,14 @@ export const NetworkGraphView: React.FC<NetworkGraphViewProps> = ({
     zoomBehaviorRef.current = zoom;
     svg.call(zoom);
 
+    // Clicking on canvas background clears active selection
+    svg.on("click", (event) => {
+      if (event.target === svg.node()) {
+        setSelectedNode(null);
+        setSelectedEdge(null);
+      }
+    });
+
     // Defs: Arrowhead markers
     const defs = svg.append("defs");
     defs
@@ -322,8 +330,9 @@ export const NetworkGraphView: React.FC<NetworkGraphViewProps> = ({
         d.isHiddenConnection ? "url(#arrow-dashed)" : "url(#arrow-solid)"
       )
       .style("cursor", "pointer")
-      .on("click", (_event, d: any) => {
-        setSelectedEdge(d);
+      .on("click", (event, d: any) => {
+        event.stopPropagation();
+        setSelectedEdge((prev) => (prev?.id === d.id ? null : d));
         setSelectedNode(null);
       });
 
@@ -354,20 +363,10 @@ export const NetworkGraphView: React.FC<NetworkGraphViewProps> = ({
           .on("drag", dragged)
           .on("end", dragended)
       )
-      .on("click", function (_event, d: any) {
-        setSelectedNode(d);
+      .on("click", function (event, d: any) {
+        event.stopPropagation();
         setSelectedEdge(null);
-
-        // Visual selection indicator ring
-        g.selectAll(".node-selection-ring").remove();
-        d3.select(this)
-          .append("circle")
-          .attr("class", "node-selection-ring")
-          .attr("r", 24)
-          .attr("fill", "none")
-          .attr("stroke", "#38bdf8")
-          .attr("stroke-width", 2.5)
-          .attr("stroke-dasharray", "3,3");
+        setSelectedNode((prev) => (prev?.id === d.id ? null : d));
       });
 
     // Node hover tooltip
@@ -650,6 +649,131 @@ export const NetworkGraphView: React.FC<NetworkGraphViewProps> = ({
       simulation.stop();
     };
   }, [finalNetwork, searchQuery, selectedType, showHiddenOnly, layoutTrigger, layoutMode]);
+
+  // Reactive node & edge highlighting: when any node is clicked, highlight it and make other nodes light in color
+  useEffect(() => {
+    if (!svgRef.current || !gRef.current) return;
+    const g = gRef.current;
+    const nodeSelection = g.selectAll<SVGGElement, any>(".graph-node");
+    const linkSelection = g.selectAll<SVGPathElement, any>(".links path");
+
+    if (!selectedNode && !selectedEdge) {
+      // Clear selection: reset all nodes to full visibility
+      nodeSelection
+        .transition()
+        .duration(220)
+        .style("opacity", 1);
+      nodeSelection.selectAll(".node-selection-ring").remove();
+      nodeSelection.selectAll(".node-pulse-ring").remove();
+
+      // Reset all links to default opacity
+      linkSelection
+        .transition()
+        .duration(220)
+        .attr("stroke-opacity", 0.75)
+        .attr("stroke-width", (d: any) => (d.isHiddenConnection ? 2 : 1.6));
+      return;
+    }
+
+    if (selectedNode) {
+      // Clean up previous rings
+      nodeSelection.selectAll(".node-selection-ring").remove();
+      nodeSelection.selectAll(".node-pulse-ring").remove();
+
+      nodeSelection.each(function (d: any) {
+        const isSelected = d.id === selectedNode.id;
+        const el = d3.select(this);
+
+        if (isSelected) {
+          el.raise();
+          el.transition()
+            .duration(200)
+            .style("opacity", 1);
+
+          // Outer glowing pulse ring
+          el.append("circle")
+            .attr("class", "node-pulse-ring")
+            .attr("r", 29)
+            .attr("fill", "none")
+            .attr("stroke", "#38bdf8")
+            .attr("stroke-width", 1.5)
+            .attr("stroke-opacity", 0.5)
+            .attr("stroke-dasharray", "2,2");
+
+          // Vivid highlight ring
+          el.append("circle")
+            .attr("class", "node-selection-ring")
+            .attr("r", 24)
+            .attr("fill", "rgba(56, 189, 248, 0.16)")
+            .attr("stroke", "#38bdf8")
+            .attr("stroke-width", 2.8)
+            .attr("stroke-dasharray", "4,3");
+        } else {
+          // Other nodes get light in color
+          el.transition()
+            .duration(200)
+            .style("opacity", 0.2);
+        }
+      });
+
+      // Highlight links connected to this node, dim others
+      linkSelection.each(function (d: any) {
+        const sourceId = typeof d.source === "object" ? d.source.id : d.source;
+        const targetId = typeof d.target === "object" ? d.target.id : d.target;
+        const isConnected = sourceId === selectedNode.id || targetId === selectedNode.id;
+
+        d3.select(this)
+          .transition()
+          .duration(200)
+          .attr("stroke-opacity", isConnected ? 1 : 0.08)
+          .attr("stroke-width", isConnected ? 2.6 : 1.2);
+      });
+      return;
+    }
+
+    if (selectedEdge) {
+      nodeSelection.selectAll(".node-selection-ring").remove();
+      nodeSelection.selectAll(".node-pulse-ring").remove();
+
+      nodeSelection.each(function (d: any) {
+        const isConnected = d.id === selectedEdge.sourceId || d.id === selectedEdge.targetId;
+        const el = d3.select(this);
+
+        if (isConnected) {
+          el.raise();
+          el.transition()
+            .duration(200)
+            .style("opacity", 1);
+
+          el.append("circle")
+            .attr("class", "node-selection-ring")
+            .attr("r", 23)
+            .attr("fill", "rgba(168, 85, 247, 0.15)")
+            .attr("stroke", "#c084fc")
+            .attr("stroke-width", 2.4)
+            .attr("stroke-dasharray", "3,3");
+        } else {
+          el.transition()
+            .duration(200)
+            .style("opacity", 0.2);
+        }
+      });
+
+      linkSelection.each(function (d: any) {
+        const sourceId = typeof d.source === "object" ? d.source.id : d.source;
+        const targetId = typeof d.target === "object" ? d.target.id : d.target;
+        const isThisEdge =
+          (sourceId === selectedEdge.sourceId && targetId === selectedEdge.targetId) ||
+          (d.id && d.id === selectedEdge.id);
+
+        d3.select(this)
+          .transition()
+          .duration(200)
+          .attr("stroke-opacity", isThisEdge ? 1 : 0.08)
+          .attr("stroke-width", isThisEdge ? 3 : 1.2);
+      });
+    }
+  }, [selectedNode, selectedEdge]);
 
   const handleZoomIn = () => {
     if (!svgRef.current || !zoomBehaviorRef.current) return;

@@ -28,6 +28,7 @@ export default function App() {
 
   // Case Data
   const [documents, setDocuments] = useState<InvestigationDocument[]>([]);
+  const [activeDocumentId, setActiveDocumentId] = useState<string>("");
   const [firstLlmOutputs, setFirstLlmOutputs] = useState<FirstLlmOutput[]>([]);
   const [finalNetwork, setFinalNetwork] = useState<FinalNetwork | null>(null);
   const [predictions, setPredictions] = useState<PredictionInsight[]>([]);
@@ -99,7 +100,17 @@ export default function App() {
         api.getFeedbackReports(caseId),
       ]);
 
-      if (docs.status === "fulfilled") setDocuments(docs.value);
+      if (docs.status === "fulfilled") {
+        setDocuments(docs.value);
+        if (docs.value && docs.value.length > 0) {
+          setActiveDocumentId((currentDocId) => {
+            if (currentDocId && docs.value.some((d) => d.id === currentDocId)) {
+              return currentDocId;
+            }
+            return docs.value[0].id;
+          });
+        }
+      }
       if (firstLlm.status === "fulfilled") setFirstLlmOutputs(firstLlm.value);
       if (networkResult.status === "fulfilled") setFinalNetwork(networkResult.value);
       else setFinalNetwork(null);
@@ -145,7 +156,8 @@ export default function App() {
     if (!activeCaseId) return;
     try {
       const newDoc = await api.uploadDocument(activeCaseId, docData);
-      setDocuments((prev) => [...prev, newDoc]);
+      setDocuments((prev) => [newDoc, ...prev.filter((d) => d.id !== newDoc.id)]);
+      setActiveDocumentId(newDoc.id);
       showToast(
         `Document "${newDoc.filename}" processed via Raspberry Pi OCR! Ready for review.`,
         "success"
@@ -176,6 +188,7 @@ export default function App() {
         verifiedBy,
       });
       setDocuments((prev) => prev.map((d) => (d.id === docId ? updated : d)));
+      setActiveDocumentId(docId);
       showToast(
         status === "APPROVED"
           ? `Document approved for First LLM processing!`
@@ -319,6 +332,8 @@ export default function App() {
               activeCase={activeCase}
               documents={documents}
               rpiStatus={rpiStatus}
+              activeDocumentId={activeDocumentId}
+              onSelectActiveDoc={setActiveDocumentId}
               onUploadDocument={handleUploadDocument}
               onVerifyDocument={handleVerifyDocument}
               onNavigateToFirstLlm={() => setActiveTab("first-llm")}
@@ -330,6 +345,8 @@ export default function App() {
               activeCase={activeCase}
               documents={documents}
               firstLlmOutputs={firstLlmOutputs}
+              activeDocumentId={activeDocumentId}
+              onSelectActiveDoc={setActiveDocumentId}
               onRunFirstLlm={handleRunFirstLlm}
               onNavigateToSecondLlm={() => setActiveTab("second-llm")}
             />
