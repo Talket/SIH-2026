@@ -92,6 +92,11 @@ export const api = {
   ): Promise<InvestigationDocument> {
     let fileDataUrl = docData.fileDataUrl;
     if (!fileDataUrl && docData.file) {
+      if (docData.file.size > 4.2 * 1024 * 1024) {
+        throw new Error(
+          `File size (${(docData.file.size / (1024 * 1024)).toFixed(1)} MB) exceeds Vercel Serverless Function payload limit of 4.2 MB. Please compress the file or upload a document under 4 MB.`
+        );
+      }
       fileDataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
@@ -127,8 +132,11 @@ export const api = {
           const err = JSON.parse(text);
           message = err.error || err.details || message;
         } catch {
-          if (text && text.trim().length > 0 && !text.includes("<!DOCTYPE")) {
-            message = `${message}: ${text.trim().slice(0, 150)}`;
+          if (text && text.trim().length > 0) {
+            const stripped = text.replace(/<[^>]*>?/gm, "").trim();
+            if (stripped) {
+              message = `${message}: ${stripped.slice(0, 160)}`;
+            }
           }
         }
       } catch {}

@@ -22,11 +22,26 @@ app.use((req, res, next) => {
 });
 
 // URL path normalization for Vercel serverless rewrites:
-// Handles both /api/cases/... and /cases/... routes seamlessly
+// Handles x-matched-path, x-now-route-matches, x-forwarded-uri, and direct /api routing seamlessly
 app.use((req, res, next) => {
-  if (req.url === "/api" && req.originalUrl && req.originalUrl !== "/api") {
+  const matchedPath = (req.headers["x-matched-path"] as string) || (req.headers["x-invoke-path"] as string);
+  const forwardedUri = req.headers["x-forwarded-uri"] as string;
+  const nowMatches = req.headers["x-now-route-matches"] as string;
+
+  if (matchedPath && matchedPath.startsWith("/api")) {
+    req.url = matchedPath.split("?")[0];
+  } else if (forwardedUri && forwardedUri.startsWith("/api")) {
+    req.url = forwardedUri.split("?")[0];
+  } else if (nowMatches && nowMatches.includes("1=")) {
+    const match = nowMatches.match(/1=([^&]+)/);
+    if (match && match[1]) {
+      const captured = decodeURIComponent(match[1]);
+      req.url = `/api/${captured.replace(/^\/+/, "")}`;
+    }
+  } else if (req.url === "/api" && req.originalUrl && req.originalUrl !== "/api") {
     req.url = req.originalUrl;
   }
+
   if (!req.url.startsWith("/api")) {
     req.url = `/api${req.url}`;
   }
@@ -384,7 +399,7 @@ const handleDocumentUploadAndExtraction = async (req: express.Request, res: expr
       sourceAgency,
       requiresOcr,
       extractionStatus: extractionResult.status,
-      originalFileDataUrl: fileDataUrl || undefined,
+      originalFileDataUrl: fileDataUrl && fileDataUrl.length < 300000 ? fileDataUrl : undefined,
       originalContent: rawContent || undefined,
       rawExtractedText: extractionResult.rawExtractedText,
       ocrMetadata: extractionResult.metadata,
@@ -414,6 +429,8 @@ const handleDocumentUploadAndExtraction = async (req: express.Request, res: expr
 
 app.post("/api/cases/:id/documents", handleDocumentUploadAndExtraction);
 app.post("/api/cases/:id/documents/upload", handleDocumentUploadAndExtraction);
+app.post("/cases/:id/documents", handleDocumentUploadAndExtraction);
+app.post("/cases/:id/documents/upload", handleDocumentUploadAndExtraction);
 
 // Re-run Raspberry Pi OCR Extraction for an existing document
 app.post("/api/cases/:caseId/documents/:docId/re-extract", async (req, res) => {
@@ -612,6 +629,17 @@ app.post("/api/cases/:caseId/feedback", (req, res) => {
 
   database.addFeedbackReport(caseId, newReport);
   res.status(201).json(newReport);
+});
+
+// Global error handling middleware - ensure client always receives clean JSON instead of HTML 500
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  console.error("[Express Global Error]", err);
+  const status = err.status || err.statusCode || 500;
+  res.status(status).json({
+    error: err.message || "Internal server error occurred during request processing",
+    status: "FAILED",
+    code: err.code || "INTERNAL_ERROR",
+  });
 });
 
 export default app;
