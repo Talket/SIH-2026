@@ -71,5 +71,5 @@ Alternatively, deploy directly from your local terminal:
 
 ## Architecture on Vercel
 - **Frontend**: Compiled using `vite build` into `dist/` and distributed globally via Vercel's Edge Network / CDN.
-- **Backend API (`/api/*`)**: Handled by the serverless function in `api/index.ts` with execution duration configured up to 60s in `vercel.json`.
+- **Backend API (`/api/*`)**: Handled by the bundled serverless function in `api/index.js` (built from `server/apiEntry.ts`) with execution duration configured up to 60s in `vercel.json`.
 - **Hardware Integration**: Forwards OCR/HTR document processing over Tailscale to the live Raspberry Pi endpoint.
