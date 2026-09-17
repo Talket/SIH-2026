@@ -241,32 +241,37 @@ const handleDocumentUploadAndExtraction = async (req: express.Request, res: expr
 
     const isMultipart = req.headers["content-type"]?.includes("multipart/form-data");
     if (isMultipart) {
-      const formData = await parseMultipartRequest(req);
-      const file = formData.get("file") as File | null;
-      if (!file) {
-        return res.status(400).json({ error: "No file provided in multipart upload." });
-      }
-      filename = (formData.get("filename") as string) || file.name;
-      mimeType = file.type || "application/octet-stream";
-      fileType = (formData.get("fileType") as string) || "OTHER";
-      sourceAgency = (formData.get("sourceAgency") as string) || "NCRB Direct Ingest";
-      const reqOcr = formData.get("requiresOcr");
-      requiresOcr = reqOcr !== "false";
+      try {
+        const formData = await parseMultipartRequest(req);
+        const file = formData.get("file") as File | null;
+        if (file) {
+          filename = (formData.get("filename") as string) || file.name;
+          mimeType = file.type || "application/octet-stream";
+          fileType = (formData.get("fileType") as string) || "OTHER";
+          sourceAgency = (formData.get("sourceAgency") as string) || "NCRB Direct Ingest";
+          const reqOcr = formData.get("requiresOcr");
+          requiresOcr = reqOcr !== "false";
 
-      const arr = await file.arrayBuffer();
-      fileBuffer = Buffer.from(arr);
-      originalSize = `${(fileBuffer.length / 1024).toFixed(1)} KB`;
-      fileDataUrl = `data:${mimeType};base64,${fileBuffer.toString("base64")}`;
-    } else {
-      const body = req.body;
-      filename = body.filename;
-      fileType = body.fileType || "OTHER";
-      originalSize = body.originalSize || "1.2 MB";
-      mimeType = body.mimeType || "application/octet-stream";
-      sourceAgency = body.sourceAgency || "NCRB Direct Ingest";
+          const arr = await file.arrayBuffer();
+          fileBuffer = Buffer.from(arr);
+          originalSize = `${(fileBuffer.length / 1024).toFixed(1)} KB`;
+          fileDataUrl = `data:${mimeType};base64,${fileBuffer.toString("base64")}`;
+        }
+      } catch (mpErr: any) {
+        console.warn("[Upload] Multipart parse warning:", mpErr.message);
+      }
+    }
+
+    if (!fileBuffer) {
+      const body = req.body || {};
+      filename = body.filename || filename;
+      fileType = body.fileType || fileType || "OTHER";
+      originalSize = body.originalSize || originalSize || "1.2 MB";
+      mimeType = body.mimeType || mimeType || "application/octet-stream";
+      sourceAgency = body.sourceAgency || sourceAgency || "NCRB Direct Ingest";
       requiresOcr = body.requiresOcr !== false;
       rawContent = body.rawContent;
-      fileDataUrl = body.fileDataUrl;
+      fileDataUrl = body.fileDataUrl || fileDataUrl;
 
       if (fileDataUrl) {
         const rawB64 = fileDataUrl.includes(";base64,")
@@ -345,10 +350,24 @@ const handleDocumentUploadAndExtraction = async (req: express.Request, res: expr
       }
     } catch (ocrErr: any) {
       console.error(`[Ingest] Pi OCR error for ${filename}:`, ocrErr.message);
-      return res.status(502).json({
-        error: `Raspberry Pi OCR failed: ${ocrErr.message}`,
-        details: ocrErr.message,
-      });
+      extractionResult = {
+        status: "FAILED",
+        rawExtractedText: `[RASPBERRY PI OCR FAILURE]\nDocument: ${filename}\nError: ${ocrErr.message}\nTimestamp: ${new Date().toISOString()}\n\nYou can re-run OCR extraction using the "Re-Extract OCR" button or manually review/edit the intelligence text in the Verification Queue.`,
+        metadata: {
+          rpiDevice: "Raspberry Pi 3B (Tailscale Funnel)",
+          rpiDeviceIp: (process.env.OCR_PI_BASE_URL || "https://ali.tail743e77.ts.net").replace(/^https?:\/\//, ""),
+          engine: "TrOCR-Large-HTR + Tesseract-v5-Devanagari/Latin",
+          latencyMs: 0,
+          confidenceScore: 0.0,
+          charCount: 0,
+          wordCount: 0,
+          totalPages: 1,
+          pagesSuccessful: 0,
+          pagesFailed: 1,
+          error: ocrErr.message,
+          processedTimestamp: new Date().toISOString(),
+        },
+      };
     }
 
     const newDoc: InvestigationDocument = {

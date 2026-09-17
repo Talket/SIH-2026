@@ -174,31 +174,50 @@ export async function processDocumentWithPi(input: PiOcrInput): Promise<PiOcrRes
   // 3. Resolve MIME type & validate magic bytes
   let resolvedMime = mimeType || "application/octet-stream";
   const lowerName = filename.toLowerCase();
-  if (lowerName.endsWith(".pdf")) resolvedMime = "application/pdf";
-  else if (lowerName.endsWith(".png")) resolvedMime = "image/png";
-  else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) resolvedMime = "image/jpeg";
-  else if (lowerName.endsWith(".webp")) resolvedMime = "image/webp";
-  else if (lowerName.endsWith(".tiff") || lowerName.endsWith(".tif")) resolvedMime = "image/tiff";
+  let sendFilename = filename;
 
-  // If claimed as PDF but doesn't start with %PDF magic header (e.g. text presets or typed content)
-  if (resolvedMime === "application/pdf" || lowerName.endsWith(".pdf")) {
+  const isPng = lowerName.endsWith(".png") || resolvedMime === "image/png" || (fileBuffer.length > 8 && fileBuffer.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])));
+  const isJpg = lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg") || resolvedMime === "image/jpeg" || (fileBuffer.length > 3 && fileBuffer[0] === 0xff && fileBuffer[1] === 0xd8 && fileBuffer[2] === 0xff);
+  const isWebp = lowerName.endsWith(".webp") || resolvedMime === "image/webp";
+  const isTiff = lowerName.endsWith(".tiff") || lowerName.endsWith(".tif") || resolvedMime === "image/tiff";
+
+  const isImage = isPng || isJpg || isWebp || isTiff;
+  const isPdf = lowerName.endsWith(".pdf") || resolvedMime === "application/pdf" || fileBuffer.slice(0, 5).toString("ascii").startsWith("%PDF");
+
+  if (isPng) {
+    resolvedMime = "image/png";
+  } else if (isJpg) {
+    resolvedMime = "image/jpeg";
+  } else if (isWebp) {
+    resolvedMime = "image/webp";
+  } else if (isTiff) {
+    resolvedMime = "image/tiff";
+  } else if (isPdf) {
     const isMagicPdf = fileBuffer.slice(0, 5).toString("ascii").startsWith("%PDF");
     if (!isMagicPdf) {
       console.log(`[Pi OCR] File "${filename}" lacks binary %PDF header; formatting as compliant PDF stream...`);
       fileBuffer = createMinimalPdfBuffer(fileBuffer.toString("utf-8"));
-      resolvedMime = "application/pdf";
+      sendFilename = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
     }
+    resolvedMime = "application/pdf";
+  } else {
+    // Non-image, non-PDF file (e.g. .txt, .csv, .log, or plain text)
+    // Wrap into a compliant PDF stream so Raspberry Pi signature validator passes with 200 OK
+    console.log(`[Pi OCR] File "${filename}" is text/other format; wrapping into compliant PDF for Pi OCR...`);
+    fileBuffer = createMinimalPdfBuffer(fileBuffer.toString("utf-8"));
+    sendFilename = filename.endsWith(".pdf") ? filename : `${filename}.pdf`;
+    resolvedMime = "application/pdf";
   }
 
   // Sanitize logging (log metadata, never raw content)
   console.log(
-    `[Pi OCR] Forwarding "${filename}" (${fileBuffer.length} bytes, ${resolvedMime}) to ${baseUrl}/process...`
+    `[Pi OCR] Forwarding "${sendFilename}" (${fileBuffer.length} bytes, ${resolvedMime}) to ${baseUrl}/process...`
   );
 
   // 4. Construct multipart/form-data payload with native FormData and Blob
   const formData = new FormData();
   const blob = new Blob([fileBuffer], { type: resolvedMime });
-  formData.append("file", blob, filename);
+  formData.append("file", blob, sendFilename);
 
   // 5. Send HTTP request to Raspberry Pi OCR server
   let response: Response;

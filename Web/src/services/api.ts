@@ -90,45 +90,63 @@ export const api = {
       file?: File;
     }
   ): Promise<InvestigationDocument> {
-    let res: Response;
-
-    // If real browser File object is supplied, send multipart/form-data
-    if (docData.file) {
-      const formData = new FormData();
-      formData.append("file", docData.file);
-      formData.append("filename", docData.filename || docData.file.name);
-      formData.append("fileType", docData.fileType);
-      if (docData.sourceAgency) formData.append("sourceAgency", docData.sourceAgency);
-      if (docData.requiresOcr !== undefined) formData.append("requiresOcr", String(docData.requiresOcr));
-
-      res = await fetch(`/api/cases/${caseId}/documents/upload`, {
-        method: "POST",
-        body: formData,
-      });
-    } else {
-      res = await fetchWithRetry(`/api/cases/${caseId}/documents/upload`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(docData),
+    let fileDataUrl = docData.fileDataUrl;
+    if (!fileDataUrl && docData.file) {
+      fileDataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error("Failed to read file for transmission"));
+        reader.readAsDataURL(docData.file!);
       });
     }
 
+    const payload = {
+      filename: docData.filename,
+      fileType: docData.fileType,
+      originalSize:
+        docData.originalSize ||
+        (docData.file ? `${(docData.file.size / 1024).toFixed(1)} KB` : "1.0 MB"),
+      mimeType: docData.mimeType || docData.file?.type || "application/pdf",
+      sourceAgency: docData.sourceAgency || "NCRB Central Intercept",
+      requiresOcr: docData.requiresOcr !== false,
+      rawContent: docData.rawContent,
+      fileDataUrl,
+    };
+
+    const res = await fetchWithRetry(`/api/cases/${caseId}/documents/upload`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to upload document and process with Raspberry Pi OCR");
+      throw new Error(
+        err.error ||
+          err.details ||
+          `Failed to upload document and process with Raspberry Pi OCR (HTTP ${res.status})`
+      );
     }
     return res.json();
   },
 
   async processOcrDirectly(file: File, fileType: string = "OTHER") {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("filename", file.name);
-    formData.append("fileType", fileType);
+    const fileDataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.readAsDataURL(file);
+    });
 
     const res = await fetch(`/api/ocr/process`, {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        fileType,
+        mimeType: file.type || "application/pdf",
+        fileDataUrl,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

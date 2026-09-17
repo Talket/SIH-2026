@@ -217,14 +217,25 @@ export const DataIngestion: React.FC<DataIngestionProps> = ({
         setSelectedDocId(createdDoc.id);
       }
 
-      setExtractionProgress({
-        status: "COMPLETED",
-        message: `OCR successful! Extracted text received from Raspberry Pi and stored in review workspace.`,
-        latencyMs: createdDoc?.ocrMetadata?.latencyMs || latencyMs,
-        confidenceScore: createdDoc?.ocrMetadata?.confidenceScore || 0.98,
-        charCount: createdDoc?.rawExtractedText ? createdDoc.rawExtractedText.length : 1200,
-        totalPages: createdDoc?.ocrMetadata?.totalPages || 1,
-      });
+      if (createdDoc?.extractionStatus === "FAILED") {
+        setExtractionProgress({
+          status: "ERROR",
+          message: `Raspberry Pi OCR status: ${createdDoc?.ocrMetadata?.error || "OCR extraction failed"}. Document saved to Verification Queue for manual review or retry.`,
+          latencyMs: createdDoc?.ocrMetadata?.latencyMs || latencyMs,
+          confidenceScore: 0,
+          charCount: 0,
+          totalPages: 1,
+        });
+      } else {
+        setExtractionProgress({
+          status: "COMPLETED",
+          message: `OCR successful! Extracted text received from Raspberry Pi and stored in review workspace.`,
+          latencyMs: createdDoc?.ocrMetadata?.latencyMs || latencyMs,
+          confidenceScore: createdDoc?.ocrMetadata?.confidenceScore || 0.98,
+          charCount: createdDoc?.rawExtractedText ? createdDoc.rawExtractedText.length : 1200,
+          totalPages: createdDoc?.ocrMetadata?.totalPages || 1,
+        });
+      }
 
       // Clear input form
       setSelectedFile(null);
